@@ -1,10 +1,11 @@
 {
-  "name": "AI Learn Coach",
-  "short_name": "AI Learn",
+  "name": "AI Tutor Voice Coach",
+  "short_name": "AI Tutor",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f7f3ec",
-  "theme_color": "#1f9d8f",
+  "background_color": "#0d1713",
+  "theme_color": "#0d1713",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -15,6 +16,12 @@
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

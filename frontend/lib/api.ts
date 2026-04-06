@@ -1,4 +1,5 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api";
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api";
+export const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 export type SessionMode = "concept_learn" | "hld_practice" | "language_deep_dive" | "rapid_qa";
 

@@ -26,12 +26,41 @@ const modeOptions: { label: string; value: SessionMode }[] = [
   { label: "Rapid", value: "rapid_qa" },
 ];
 
-function playBase64Audio(audioBase64: string): void {
-  const blob = base64ToBlob(audioBase64, "audio/wav");
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  audio.onended = () => URL.revokeObjectURL(url);
-  void audio.play();
+function guessAudioMime(audioBase64: string): string {
+  const head = atob(audioBase64.slice(0, 96));
+  if (head.startsWith("RIFF") && head.includes("WAVE")) return "audio/wav";
+  if (head.startsWith("ID3")) return "audio/mpeg";
+  if (head.startsWith("OggS")) return "audio/ogg";
+  if (head.startsWith("fLaC")) return "audio/flac";
+  if (head.length >= 8 && head.slice(4, 8) === "ftyp") return "audio/mp4";
+  const bytes = new Uint8Array(
+    Array.from(head.slice(0, 2)).map((c) => c.charCodeAt(0)),
+  );
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  return "audio/wav";
+}
+
+async function playBase64Audio(audioBase64: string): Promise<void> {
+  const guessed = guessAudioMime(audioBase64);
+  const candidates = [guessed, "audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg", "audio/flac"];
+  let lastError: unknown = null;
+
+  for (const mime of [...new Set(candidates)]) {
+    const blob = base64ToBlob(audioBase64, mime);
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.setAttribute("playsinline", "true");
+    try {
+      await audio.play();
+      audio.onended = () => URL.revokeObjectURL(url);
+      return;
+    } catch (err) {
+      lastError = err;
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  throw lastError ?? new Error("Audio playback failed");
 }
 
 function reportToText(report: SessionReport): string {
@@ -80,6 +109,8 @@ export default function SessionPanel() {
   const [recorderMime, setRecorderMime] = useState("not-initialized");
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "sent" | "ok" | "failed">("idle");
   const [voiceStatusText, setVoiceStatusText] = useState("Waiting for mic input");
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -115,7 +146,36 @@ export default function SessionPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler as EventListener);
+    return () => window.removeEventListener("beforeinstallprompt", handler as EventListener);
+  }, []);
+
+  const unlockAudio = async () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      await ctx.resume();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.start(0);
+      setAudioUnlocked(true);
+      setVoiceStatusText("Audio playback enabled");
+      await ctx.close();
+    } catch {
+      setVoiceStatusText("Tap Enable Sound again");
+    }
+  };
+
   const startSession = async () => {
+    if (!audioUnlocked) await unlockAudio();
     setLoading(true);
     setError("");
 
@@ -152,7 +212,9 @@ export default function SessionPanel() {
         }
 
         if (data.audio_base64) {
-          playBase64Audio(data.audio_base64);
+          void playBase64Audio(data.audio_base64).catch(() => {
+            setVoiceStatusText("Audio blocked/unsupported. Tap Enable Sound and retry.");
+          });
         }
       };
 
@@ -345,6 +407,25 @@ export default function SessionPanel() {
           <h2>Learning Session</h2>
         </div>
         <span className={`chip chip-${connection}`}>{connection}</span>
+      </div>
+
+      <div className="row actions">
+        {!audioUnlocked && (
+          <button className="btn btn-ghost" onClick={unlockAudio}>
+            Enable Sound
+          </button>
+        )}
+        {installPrompt && (
+          <button
+            className="btn btn-ghost"
+            onClick={async () => {
+              await installPrompt.prompt();
+              setInstallPrompt(null);
+            }}
+          >
+            Install App
+          </button>
+        )}
       </div>
 
       <div className="orb-wrap">
